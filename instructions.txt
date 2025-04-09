@@ -1,0 +1,5 @@
+anaconda
+f:
+activate gphotos-1
+cd Arslan\git\google-photos-albums-sync-app
+python download-with-api.py

@@ -7,10 +7,13 @@ from io import BytesIO
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
+from google.auth.exceptions import RefreshError
 
 from logger import setup_logger
 
 DESTINATION_PATH = os.path.join('e:', os.sep, 'GooglePhotosSyncUsingAPI')
+SECOND_USER = True
+CREDENTIALS_FILE = 'credentials-a.json'
 COMPARE_FILESIZE_OF_EXISTING_FILES = False
 CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB
 SCOPES = ['https://www.googleapis.com/auth/photoslibrary.readonly']
@@ -19,13 +22,19 @@ logger = setup_logger(log_file='logs/download-with-api.log', log_level='DEBUG', 
 
 def authenticate():
     creds = None
+
     if os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json')
     if not creds or not creds.valid:
+        request_new_token = True
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            try:
+                creds.refresh(Request())
+                request_new_token = False
+            except RefreshError:
+                request_new_token = True
+        if request_new_token:
+            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
@@ -141,6 +150,14 @@ def download_media_item(media_item, directory):
     else:
         download_url = f"{base_url}=d"  # The '=d' suffix requests the original quality download for photos
 
+    if SECOND_USER:
+        from pathlib import Path
+        filename_pattern = f"{sanitize_filename(name)}-*{ext}"
+        matching_files = list(Path(directory).rglob(filename_pattern))
+        if len(matching_files):
+            logger.info(f"      - File pattern {directory}/{filename_pattern} already exists in {matching_files[0].stem}, skipping download.")
+            return
+
     # Check if file already exists and verify its size
     if os.path.exists(file_path):
         if not COMPARE_FILESIZE_OF_EXISTING_FILES:
@@ -192,6 +209,12 @@ def download_photos():
     creds = authenticate()
     albums = get_albums(creds)
     total_albums = len(albums)
+
+    logger.info("List of albums:")
+    for index, album in enumerate(albums, start=1):
+        album_title = album['title']
+        album_id = album['id']
+        logger.info(f" Album {index}/{total_albums}: {album_title}")
 
     for index, album in enumerate(albums, start=1):
         album_title = album['title']
